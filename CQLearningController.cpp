@@ -13,6 +13,7 @@ Refer to Watkins, Christopher JCH, and Peter Dayan. "Q-learning." Machine learni
 for a detailed discussion on Q Learning
 */
 #include "CQLearningController.h"
+#include <fstream>
 
 using namespace std;
 
@@ -51,13 +52,10 @@ void CQLearningController::InitializeLearningAlgorithm(void)
 			vector<double> actions;
 
 			// Set all actions to 0
-			for (int k = 0; k < numActions; k++)
-			{
-				actions.push_back(0);
-			}
+			sweeperQTable.push_back({ 0.0, 0.0, 0.0, 0.0 });
 
 			// Add vector of actions to sweeper's Q table
-			sweeperQTable.push_back(actions);
+			/*sweeperQTable.push_back(actions);*/
 		}
 
 		// Add sweeper Q Table to Q tables vector
@@ -73,9 +71,9 @@ void CQLearningController::InitializeLearningAlgorithm(void)
 double CQLearningController::R(uint x,uint y, uint sweeper_no)
 {
 	// default reward is 0. No reward is given for an arbitrary position with no object
-	double reward = 0;
-	CDiscMinesweeper* sweeper = m_vecSweepers[sweeper_no];
-	int objectAtCurrentIndex = sweeper->CheckForObject(m_vecObjects, CParams::dMineScale);
+	double reward = 0.0;
+	// CDiscMinesweeper* sweeper = m_vecSweepers[sweeper_no];
+	int objectAtCurrentIndex = m_vecSweepers[sweeper_no]->CheckForObject(m_vecObjects, CParams::dMineScale);
 
 	// If object is valid
 	if (objectAtCurrentIndex >= 0)
@@ -83,18 +81,22 @@ double CQLearningController::R(uint x,uint y, uint sweeper_no)
 		switch (m_vecObjects[objectAtCurrentIndex]->getType())
 		{
 			// Negative reward for colliding with a rock
-			case CDiscCollisionObject::Rock:
-				reward = -100;
+			case CDiscCollisionObject::SuperMine:
+				reward = -100.0;
 				break;
 
 			// Positive reward for finding a mine
 			case CDiscCollisionObject::Mine:
-				reward = 100;
+				if (!m_vecObjects[objectAtCurrentIndex]->isDead())
+				{
+					reward = 100.0;
+				}
+				
 				break;
 
 			// Negative reward colliding with a super mine
-			case CDiscCollisionObject::SuperMine:
-				reward = -100;
+			case CDiscCollisionObject::Rock:
+				//reward = -100.0;
 				break;
 		}
 
@@ -114,12 +116,38 @@ bool CQLearningController::Update(void)
 							   m_vecSweepers.end(),
 						       [](CDiscMinesweeper * s)->bool{
 								return s->isDead();
-							   });
+		
+	});
+
+	int minesCleared = 0;
+	for (int i = 0; i < m_vecSweepers.size(); i++)
+	{
+		minesCleared += m_vecSweepers[i]->MinesGathered();
+	}
+	totalMinesCleared += minesCleared/CParams::iNumSweepers;
+
+	agentsDestroyed += cDead;
+	if ((m_iIterations == 173))
+	{
+		ofstream outfile("output.txt");
+		if (outfile.is_open())
+		{
+			outfile << "Mines cleared: " << totalMinesCleared << endl;
+			outfile << "Agents dead: " << agentsDestroyed << endl;
+			outfile.close();
+		}
+		
+	}
+	
+	
+
 	if (cDead == CParams::iNumSweepers)
 	{
 		printf("All dead ... skipping to next iteration\n");
 		m_iTicks = CParams::iNumTicks;
 	}
+
+	
 
 	for (uint sw = 0; sw < CParams::iNumSweepers; ++sw)
 	{
@@ -135,6 +163,8 @@ bool CQLearningController::Update(void)
 		int action = getMaxAction(QTables[sw][(pos.x * _grid_size_y) + pos.y]);
 
 		ROTATION_DIRECTION direction;
+
+		// Select next direction as per the action chosen
 		switch (action)
 		{
 			case 0:
@@ -150,20 +180,53 @@ bool CQLearningController::Update(void)
 				direction = ROTATION_DIRECTION::SOUTH;
 				break;
 		}
-		m_vecSweepers[sw]->setRotation(direction);
-		//TODO
-		//now call the parents update, so all the sweepers fulfill their chosen action
+		m_vecSweepers[sw]->setRotation((ROTATION_DIRECTION)action);
+		
 	}
 	
+	// Update all sweepers' positions
 	CDiscController::Update(); //call the parent's class update. Do not delete this.
+
 	
-	for (uint sw = 0; sw < CParams::iNumSweepers; ++sw){
-		if (m_vecSweepers[sw]->isDead()) continue;
+	for (uint sw = 0; sw < CParams::iNumSweepers; ++sw)
+	{
+		if (m_vecSweepers[sw]->isDead())
+		{
+			SVector2D<int> pos = m_vecSweepers[sw]->Position();
+			pos /= 10;
+
+			SVector2D<int> prevPos = m_vecSweepers[sw]->PrevPosition();
+			prevPos /= 10;
+
+			int action = m_vecSweepers[sw]->getRotation();
+
+			//4:::Update _Q_s_a accordingly:
+			int sweeperPosInTable = (pos.x * _grid_size_y) + pos.y;
+			int sweeperPrevPosInTable = (prevPos.x * _grid_size_y) + prevPos.y;
+			QTables[sw][sweeperPosInTable][action] -= 100;
+			QTables[sw][sweeperPrevPosInTable][action] += (learningRate * (R(pos.x, pos.y, sw) + (discountFactor * QTables[sw][sweeperPrevPosInTable][action]) - QTables[sw][sweeperPrevPosInTable][action]));
+			continue;
+		}
+
+		SVector2D<int> pos = m_vecSweepers[sw]->Position();
+		pos /= 10;
+
+		SVector2D<int> prevPos = m_vecSweepers[sw]->PrevPosition();
+		prevPos /= 10;
+
+		int action = (int)m_vecSweepers[sw]->getRotation();
+
+		//4:::Update _Q_s_a accordingly:
+		int sweeperPosInTable = (pos.x * _grid_size_y) + pos.y;
+		int sweeperPrevPosInTable = (prevPos.x * _grid_size_y) + prevPos.y;
+
+		QTables[sw][sweeperPrevPosInTable][action] += (learningRate * (R(pos.x, pos.y, sw) + (discountFactor * getMaxActionValue(QTables[sw][sweeperPosInTable])) - QTables[sw][sweeperPrevPosInTable][action]));
+			
+		
 		//TODO:compute your indexes.. it may also be necessary to keep track of the previous state
 		//3:::Observe new state:
-		//TODO
-		//4:::Update _Q_s_a accordingly:
-		//TODO
+		
+
 	}
 	return true;
 }
@@ -176,7 +239,7 @@ int CQLearningController::getMaxAction(vector<double> actions)
 	double maxValue = actions[0];
 
 	// Update the max value as we loop through all the actions
-	for (int i = 0; i < actions.size(); i++)
+	for (int i = 1; i < actions.size(); i++)
 	{
 		if (actions[i] > maxValue)
 		{
@@ -209,6 +272,21 @@ int CQLearningController::getMaxAction(vector<double> actions)
 	}
 
 	return maxAction;
+}
+
+double CQLearningController::getMaxActionValue(vector<double> actions)
+{
+	double maxValue = actions[0];
+
+	for (int i = 1; i < actions.size(); i++)
+	{
+		if (actions[i] > maxValue)
+		{
+			maxValue = actions[i];
+		}
+	}
+
+	return maxValue;
 }
 
 CQLearningController::~CQLearningController(void)

@@ -96,7 +96,7 @@ double CQLearningController::R(uint x,uint y, uint sweeper_no)
 
 			// Negative reward colliding with a super mine
 			case CDiscCollisionObject::Rock:
-				//reward = -100.0;
+				reward = -100.0;
 				break;
 		}
 
@@ -118,27 +118,6 @@ bool CQLearningController::Update(void)
 								return s->isDead();
 		
 	});
-
-	int minesCleared = 0;
-	for (int i = 0; i < m_vecSweepers.size(); i++)
-	{
-		minesCleared += m_vecSweepers[i]->MinesGathered();
-	}
-	totalMinesCleared += minesCleared/CParams::iNumSweepers;
-
-	agentsDestroyed += cDead;
-	if ((m_iIterations == 173))
-	{
-		ofstream outfile("output.txt");
-		if (outfile.is_open())
-		{
-			outfile << "Mines cleared: " << totalMinesCleared << endl;
-			outfile << "Agents dead: " << agentsDestroyed << endl;
-			outfile.close();
-		}
-		
-	}
-	
 	
 
 	if (cDead == CParams::iNumSweepers)
@@ -147,7 +126,6 @@ bool CQLearningController::Update(void)
 		m_iTicks = CParams::iNumTicks;
 	}
 
-	
 
 	for (uint sw = 0; sw < CParams::iNumSweepers; ++sw)
 	{
@@ -200,14 +178,15 @@ bool CQLearningController::Update(void)
 
 			int action = m_vecSweepers[sw]->getRotation();
 
-			//4:::Update _Q_s_a accordingly:
+			//4:::Update QTable accordingly:
 			int sweeperPosInTable = (pos.x * _grid_size_y) + pos.y;
 			int sweeperPrevPosInTable = (prevPos.x * _grid_size_y) + prevPos.y;
 			QTables[sw][sweeperPosInTable][action] -= 100;
 			QTables[sw][sweeperPrevPosInTable][action] += (learningRate * (R(pos.x, pos.y, sw) + (discountFactor * QTables[sw][sweeperPrevPosInTable][action]) - QTables[sw][sweeperPrevPosInTable][action]));
 			continue;
 		}
-
+		
+		//3:::Observe new state:
 		SVector2D<int> pos = m_vecSweepers[sw]->Position();
 		pos /= 10;
 
@@ -223,8 +202,6 @@ bool CQLearningController::Update(void)
 		QTables[sw][sweeperPrevPosInTable][action] += (learningRate * (R(pos.x, pos.y, sw) + (discountFactor * getMaxActionValue(QTables[sw][sweeperPosInTable])) - QTables[sw][sweeperPrevPosInTable][action]));
 			
 		
-		//TODO:compute your indexes.. it may also be necessary to keep track of the previous state
-		//3:::Observe new state:
 		
 
 	}

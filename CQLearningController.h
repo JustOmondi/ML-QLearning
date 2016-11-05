@@ -15,9 +15,6 @@ private:
 	double learningRate = 0.1;	
 	double discountFactor = 0.5;
 
-	double totalMinesCleared = 0.0f;
-	int agentsDestroyed = 0;
-
 	// Sweepers Q Tables
 	std::vector<std::vector<std::vector<double>>> QTables;
 
